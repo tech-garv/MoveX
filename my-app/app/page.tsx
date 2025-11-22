@@ -1,18 +1,25 @@
 "use client";
 
 import React from "react";
-import { useUser } from "@clerk/nextjs";
+import Booking from "@/components/booking/Booking";
 
 export default function Page() {
-  const { isLoaded, isSignedIn, user } = useUser();
-
-  if (!isLoaded) return <div className="p-6">Loading...</div>;
-
-  if (!isSignedIn) return <div className="p-6">Please sign in to view this page</div>;
-
   return (
-    <div className="p-6">
-      Hello {user?.firstName ?? "User"}!
+    <div className="grid grid-cols-1 md:grid-cols-2 h-auto md:h-screen">
+      
+      {/* LEFT: BOOKING PANEL */}
+      <div className="bg-white rounded-2xl shadow-xl
+ flex items-start md:items-center justify-center p-4 md:p-10">
+        <div className="w-full max-w-lg">
+          <Booking />
+        </div>
+      </div>
+
+      {/* RIGHT: MAP PANEL */}
+      <div className="bg-gray-100 flex items-center justify-center p-6">
+        <h1 className="text-3xl md:text-4xl font-bold text-gray-900">Map</h1>
+      </div>
+
     </div>
   );
 }

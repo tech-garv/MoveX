@@ -93,7 +93,7 @@ export default function Navbar() {
 
   return (
     <nav
-      className={`fixed top-0 left-0 w-full backdrop-blur-xl bg-slate-900/90 border-b border-yellow-500/20 shadow-xl transition-all duration-500 z-50
+      className={`fixed top-0 left-0 w-full backdrop-blur-xl bg-black text-white border-b border-yellow-500/20 shadow-xl transition-all duration-500 z-50
         ${scrolled ? "-translate-y-full opacity-0" : "translate-y-0 opacity-100"}
       `}
     >
