@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import Navbar from "@/components/navbar/Navbar";
+import "leaflet/dist/leaflet.css";
+import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 
 export const metadata: Metadata = {
   title: "My Next App",
@@ -12,9 +14,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <ClerkProvider>
       <html lang="en">
-        <body>
+        {/* Added suppressHydrationWarning to stop extension errors */}
+        <body suppressHydrationWarning>
           <Navbar />
-          <div className="pt-20">{children}</div>
+          <div className="pt-20 h-screen overflow-hidden">
+            {children}
+          </div>
         </body>
       </html>
     </ClerkProvider>

@@ -1,7 +1,14 @@
 import React from "react";
-import Address from "./Adress";
+import Address from "../booking/Address";
 
-const Booking = () => {
+// 1. Define what props this component needs to receive
+type Props = {
+  setPickupCoords: (coords: any) => void;
+  setDropCoords: (coords: any) => void;
+};
+
+// 2. Accept the props in the function
+const Booking = ({ setPickupCoords, setDropCoords }: Props) => {
   return (
     <div className="w-full max-w-4xl mx-auto px-4 sm:px-8 md:px-12 py-8">
       
@@ -30,8 +37,11 @@ const Booking = () => {
           </h3>
         </div>
 
-        {/* Address Component */}
-        <Address />
+        {/* 3. Pass the props down to the Address component */}
+        <Address 
+            setPickupCoords={setPickupCoords} 
+            setDropCoords={setDropCoords} 
+        />
 
       </div>
     </div>
