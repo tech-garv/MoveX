@@ -1,60 +1,113 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import dynamic from "next/dynamic";
+
 import Booking from "@/components/booking/Booking";
+import TripSummary from "@/components/TripSummary";
+import VehicleSelector from "@/components/VehicleSelector";
+import PaymentMock from "@/components/PaymentMock";
 
-// Skeleton for map
-const MapSkeleton = () => (
-  <div className="h-full w-full bg-neutral-200 animate-pulse flex items-center justify-center text-neutral-400">
-    <span className="text-sm font-semibold tracking-wide">LOADING MAP...</span>
-  </div>
-);
-
-const MapView = dynamic(() => import("@/components/map/MapView"), { 
+const MapView = dynamic(() => import("@/components/map/MapView"), {
   ssr: false,
-  loading: () => <MapSkeleton /> 
+  loading: () => (
+    <div className="h-full w-full bg-neutral-200 animate-pulse flex items-center justify-center">
+      Loading map...
+    </div>
+  ),
 });
 
-type Coords = { lat: number; lon: number; };
+export type Coords = { lat: number; lon: number };
+export type RouteInfo = { distanceKm: number; durationMin: number; geometry?: any };
 
 export default function Page() {
   const [pickupCoords, setPickupCoords] = useState<Coords | null>(null);
   const [dropCoords, setDropCoords] = useState<Coords | null>(null);
 
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
+  const [selectedRouteType, setSelectedRouteType] =
+    useState<"eco" | "fast" | "scenic">("fast");
+
+  const [fare, setFare] = useState<number | null>(null);
+  const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
+
+  const [showVehicleSelector, setShowVehicleSelector] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+
   return (
-    <div className="h-screen w-full bg-neutral-100 relative overflow-hidden flex flex-col md:flex-row md:p-6 md:gap-6">
-      
-      {/* --- SECTION 1: MAP (Mobile: Top 45% | Desktop: Right Side) --- */}
-      <div className="h-[45%] w-full md:h-full md:flex-1 md:order-2 relative z-0">
-        <div className="absolute inset-0 md:rounded-[2.5rem] overflow-hidden shadow-none md:shadow-2xl md:shadow-blue-900/10 md:border md:border-white/50">
-           <MapView pickupCoords={pickupCoords} dropCoords={dropCoords} />
-           
-           {/* Gradient Overlay for Mobile */}
-           <div className="md:hidden absolute bottom-0 left-0 right-0 h-24 bg-linear-to-t from-neutral-100 to-transparent pointer-events-none `z-[400]`" />
+    <div className="min-h-screen w-full flex flex-col md:flex-row bg-neutral-100">
+
+      {/* LEFT SIDE */}
+      <div className="w-full md:w-1/2 h-screen flex flex-col p-5 md:p-8">
+
+        {/* Sticky Header */}
+        <div className="sticky top-0 bg-neutral-100 z-20 pb-4 border-b border-neutral-300">
+          <h1 className="text-3xl font-extrabold">Plan Your Ride</h1>
         </div>
-      </div>
 
-      {/* --- SECTION 2: BOOKING FORM (Mobile: Bottom Sheet | Desktop: Left Card) --- */}
-      <div className="h-[55%] md:h-full md:w-[450px] md:order-1 flex flex-col z-10">
-        
-        {/* The Card Container - FIXED CLASSNAME STRING */}
-        <div className="flex-1 bg-white `rounded-t-[2rem]` md:rounded-[2.5rem] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] md:shadow-xl border-t md:border border-white/50 md:border-neutral-200/60 overflow-hidden flex flex-col -mt-6 md:mt-0">
-          
-          {/* Mobile Handle Bar */}
-          <div className="md:hidden w-full flex justify-center pt-3 pb-1">
-             <div className="w-12 h-1.5 bg-neutral-200 rounded-full"></div>
-          </div>
+        {/* Scrollable form */}
+        <div className="flex-1 overflow-y-auto no-scrollbar mt-5">
+          <div className="w-full bg-white rounded-2xl shadow-lg border border-neutral-200 p-6">
 
-          {/* Scrollable Content Area */}
-          <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-8">
             <Booking
               setPickupCoords={setPickupCoords}
               setDropCoords={setDropCoords}
+              routeInfo={routeInfo}
+              onRouteTypeChange={setSelectedRouteType}
             />
+
+            {routeInfo && (
+              <div className="mt-6">
+                <TripSummary
+                  routeInfo={routeInfo}
+                  routeType={selectedRouteType}
+                  fare={fare}
+                  onEstimate={setFare}
+                  onSelectVehicle={() => setShowVehicleSelector(true)}
+                />
+              </div>
+            )}
+
+            {showVehicleSelector && routeInfo && (
+              <div className="mt-6">
+                <VehicleSelector
+                  routeInfo={routeInfo}
+                  onSelect={(vehicle) => {
+                    setSelectedVehicle(vehicle);
+                    setShowPayment(true);
+                    setShowVehicleSelector(false);
+                  }}
+                  onClose={() => setShowVehicleSelector(false)}
+                />
+              </div>
+            )}
+
+            {showPayment && selectedVehicle && fare !== null && (
+              <div className="mt-6">
+                <PaymentMock
+                  fare={fare}
+                  vehicle={selectedVehicle}
+                  onPaid={() => setShowPayment(false)}
+                  onCancel={() => setShowPayment(false)}
+                />
+              </div>
+            )}
+
           </div>
         </div>
+      </div>
 
+      {/* RIGHT SIDE - MAP */}
+      <div className="w-full md:w-1/2 h-screen p-5 md:p-8">
+        <div className="w-full h-full rounded-2xl overflow-hidden shadow-xl border border-neutral-200 bg-white">
+          <MapView
+            pickupCoords={pickupCoords}
+            dropCoords={dropCoords}
+            onRouteComputed={setRouteInfo}
+            selectedRouteType={selectedRouteType}
+            animateCar={!!selectedVehicle}
+          />
+        </div>
       </div>
 
     </div>

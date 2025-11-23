@@ -17,9 +17,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Added suppressHydrationWarning to stop extension errors */}
         <body suppressHydrationWarning>
           <Navbar />
-          <div className="pt-20 h-screen overflow-hidden">
-            {children}
-          </div>
+<div className="pt-20 min-h-screen overflow-auto">
+  {children}
+</div>
+
         </body>
       </html>
     </ClerkProvider>

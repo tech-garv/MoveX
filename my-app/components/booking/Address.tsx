@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import axios from "axios";
+import { MapPin } from "lucide-react";
 
 type Props = {
   setPickupCoords: (coords: any) => void;
@@ -17,114 +18,109 @@ export default function Address({ setPickupCoords, setDropCoords }: Props) {
 
   const KEY = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
 
-  // Search Logic (Only searches for the AREA, ignoring house numbers)
   async function search(query: string, setList: any) {
     if (query.length < 3) return setList([]);
 
     try {
-      const url = `https://us1.locationiq.com/v1/search?key=${KEY}&q=${encodeURIComponent(query)}&format=json&countrycodes=in`;
+      const url = `https://us1.locationiq.com/v1/search?key=${KEY}&q=${encodeURIComponent(
+        query
+      )}&format=json&countrycodes=in`;
+
       const res = await axios.get(url);
       setList(res.data);
-    } catch (error) {
-       // Ignore errors, let user keep typing
-    }
+    } catch {}
   }
 
   const handleInput = (val: string, setText: any, setList: any) => {
     setText(val);
     clearTimeout(timer);
-    const newTimer = setTimeout(() => {
-        search(val, setList);
-    }, 1000);
+
+    const newTimer = setTimeout(() => search(val, setList), 600);
     setTimer(newTimer);
   };
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-8">
 
-      {/* --- PICKUP SECTION --- */}
+      {/* PICKUP */}
       <div>
-        <label className="text-gray-900 font-bold text-sm ml-1">Pickup Location</label>
-        
-        {/* Box 1: House Number (Does NOT search map) */}
-        <input 
-            className="w-full mb-2 p-2 border-b border-gray-300 text-sm focus:outline-none focus:border-black"
-            placeholder="House / Flat No. (e.g. #372)"
+        <label className="block font-semibold text-lg">Pickup Location</label>
+        <p className="text-sm text-neutral-500 mb-3">Enter your starting point (e.g. Phase 7 Mohali)</p>
+
+        <input
+          placeholder="House / Flat No. (optional)"
+          className="w-full px-4 py-3 mb-3 rounded-lg border border-neutral-300 bg-neutral-50 outline-none"
         />
 
-        {/* Box 2: Area Search (Searches Map) */}
         <div className="relative">
-            <div className="flex items-center border border-gray-300 rounded-xl bg-gray-50 focus-within:ring-2 focus-within:ring-black focus-within:bg-white transition">
-            <div className="w-3 h-3 bg-green-600 rounded-full ml-4 shadow-sm"></div>
+          <div className="flex items-center px-4 py-3 rounded-lg border border-neutral-300 bg-white">
+            <MapPin size={18} className="mr-3 text-green-600" />
             <input
-                className="w-full p-3 bg-transparent outline-none text-gray-700 placeholder-gray-400"
-                placeholder="Search Area (e.g. Mohali  )"
-                value={pickupText}
-                onChange={(e) => handleInput(e.target.value, setPickupText, setPickupList)}
+              value={pickupText}
+              onChange={(e) => handleInput(e.target.value, setPickupText, setPickupList)}
+              placeholder="Search pickup area"
+              className="w-full outline-none"
             />
-            </div>
+          </div>
 
-            {/* Dropdown List */}
-            {pickupList.length > 0 && (
-            <ul className="absolute bg-white w-full shadow-2xl rounded-xl mt-2 max-h-60 overflow-auto z-50 border border-gray-100">
-                {pickupList.map((place: any, i) => (
+          {pickupList.length > 0 && (
+            <ul className="absolute bg-white w-full mt-2 rounded-lg shadow-xl max-h-60 overflow-auto border border-neutral-200 z-50">
+              {pickupList.map((place: any, i) => (
                 <li
-                    key={i}
-                    onClick={() => {
+                  key={i}
+                  onClick={() => {
                     setPickupText(place.display_name);
                     setPickupCoords({ lat: parseFloat(place.lat), lon: parseFloat(place.lon) });
                     setPickupList([]);
-                    }}
-                    className="p-3 hover:bg-gray-100 cursor-pointer border-b text-sm text-gray-600"
+                  }}
+                  className="px-4 py-3 text-sm cursor-pointer hover:bg-neutral-100 border-b"
                 >
-                    📍 {place.display_name}
+                  📍 {place.display_name}
                 </li>
-                ))}
+              ))}
             </ul>
-            )}
+          )}
         </div>
       </div>
 
-
-      {/* --- DROP SECTION --- */}
+      {/* DROP */}
       <div>
-        <label className="text-gray-900 font-bold text-sm ml-1">Drop Location</label>
+        <label className="block font-semibold text-lg">Drop Location</label>
+        <p className="text-sm text-neutral-500 mb-3">Where do you want to go?</p>
 
-        {/* Box 1: House Number */}
-        <input 
-            className="w-full mb-2 p-2 border-b border-gray-300 text-sm focus:outline-none focus:border-black"
-            placeholder="House / Flat No. (e.g. Office 404)"
+        <input
+          placeholder="House / Office No. (optional)"
+          className="w-full px-4 py-3 mb-3 rounded-lg border border-neutral-300 bg-neutral-50 outline-none"
         />
 
-        {/* Box 2: Area Search */}
         <div className="relative">
-            <div className="flex items-center border border-gray-300 rounded-xl bg-gray-50 focus-within:ring-2 focus-within:ring-black focus-within:bg-white transition">
-            <div className="w-3 h-3 bg-red-600 ml-4 shadow-sm"></div>
+          <div className="flex items-center px-4 py-3 rounded-lg border border-neutral-300 bg-white">
+            <MapPin size={18} className="mr-3 text-red-600" />
             <input
-                className="w-full p-3 bg-transparent outline-none text-gray-700 placeholder-gray-400"
-                placeholder="Search Area (e.g. Sector 17, Chandigarh)"
-                value={dropText}
-                onChange={(e) => handleInput(e.target.value, setDropText, setDropList)}
+              value={dropText}
+              onChange={(e) => handleInput(e.target.value, setDropText, setDropList)}
+              placeholder="Search drop area"
+              className="w-full outline-none"
             />
-            </div>
+          </div>
 
-            {dropList.length > 0 && (
-            <ul className="absolute bg-white w-full shadow-2xl rounded-xl mt-2 max-h-60 overflow-auto z-50 border border-gray-100">
-                {dropList.map((place: any, i) => (
+          {dropList.length > 0 && (
+            <ul className="absolute bg-white w-full mt-2 rounded-lg shadow-xl max-h-60 overflow-auto border border-neutral-200 z-50">
+              {dropList.map((place: any, i) => (
                 <li
-                    key={i}
-                    onClick={() => {
+                  key={i}
+                  onClick={() => {
                     setDropText(place.display_name);
                     setDropCoords({ lat: parseFloat(place.lat), lon: parseFloat(place.lon) });
                     setDropList([]);
-                    }}
-                    className="p-3 hover:bg-gray-100 cursor-pointer border-b text-sm text-gray-600"
+                  }}
+                  className="px-4 py-3 text-sm cursor-pointer hover:bg-neutral-100 border-b"
                 >
-                    📍 {place.display_name}
+                  📍 {place.display_name}
                 </li>
-                ))}
+              ))}
             </ul>
-            )}
+          )}
         </div>
       </div>
 

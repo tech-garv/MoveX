@@ -1,51 +1,74 @@
-import React from "react";
-import Address from "../booking/Address";
+"use client";
 
-// 1. Define what props this component needs to receive
+import React from "react";
+import Address from "./Address";
+
 type Props = {
   setPickupCoords: (coords: any) => void;
   setDropCoords: (coords: any) => void;
+  routeInfo: any;
+  onRouteTypeChange: (t: "eco" | "fast" | "scenic") => void;
 };
 
-// 2. Accept the props in the function
-const Booking = ({ setPickupCoords, setDropCoords }: Props) => {
+export default function Booking({
+  setPickupCoords,
+  setDropCoords,
+  routeInfo,
+  onRouteTypeChange,
+}: Props) {
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 sm:px-8 md:px-12 py-8">
-      
-      {/* Header Section */}
-      <div className="mb-8">
-        <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
-          <span className="bg-linear-to-r from-black via-gray-700 to-gray-900 bg-clip-text text-transparent">
-            Booking Details
-          </span>
-        </h2>
-
-        <p className="text-gray-600 mt-2 text-sm sm:text-base md:text-lg leading-relaxed max-w-2xl">
-          Provide accurate pickup and drop locations to help us find the most suitable ride options for you.
+    <div>
+      <div className="mb-4">
+        <h2 className="text-xl font-bold">Booking Details</h2>
+        <p className="text-sm text-gray-500">
+          Enter pickup & drop details to start planning your ride.
         </p>
       </div>
 
-      {/* Premium Card Wrapper */}
-      <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-5 sm:p-7 md:p-9">
-        
-        {/* Section Title */}
-        <div className="mb-6 pb-3 border-b border-gray-200">
-          <h3 className="text-xl sm:text-2xl font-semibold text-gray-900 tracking-tight">
-            <span className="border-l-4 border-yellow-400 pl-3">
-              Enter Trip Information
-            </span>
-          </h3>
+      <div className="p-4 border rounded-2xl bg-neutral-50">
+        <Address setPickupCoords={setPickupCoords} setDropCoords={setDropCoords} />
+
+        <div className="mt-4">
+          <label className="text-sm font-medium">Route Type</label>
+
+          <div className="flex gap-2 mt-2">
+            <button
+              className="px-3 py-2 border rounded-lg"
+              onClick={() => onRouteTypeChange("eco")}
+            >
+              🌱 Eco
+            </button>
+
+            <button
+              className="px-3 py-2 border rounded-lg"
+              onClick={() => onRouteTypeChange("fast")}
+            >
+              ⚡ Fast
+            </button>
+
+            <button
+              className="px-3 py-2 border rounded-lg"
+              onClick={() => onRouteTypeChange("scenic")}
+            >
+              🌄 Scenic
+            </button>
+          </div>
         </div>
 
-        {/* 3. Pass the props down to the Address component */}
-        <Address 
-            setPickupCoords={setPickupCoords} 
-            setDropCoords={setDropCoords} 
-        />
+        {routeInfo && (
+          <div className="mt-4 p-3 bg-white rounded-xl shadow-sm text-sm">
+            <div className="flex justify-between">
+              <span>Distance:</span>
+              <strong>{routeInfo.distanceKm.toFixed(2)} km</strong>
+            </div>
 
+            <div className="flex justify-between">
+              <span>ETA:</span>
+              <strong>{Math.ceil(routeInfo.durationMin)} min</strong>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
-};
-
-export default Booking;
+}
