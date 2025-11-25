@@ -54,7 +54,7 @@ export default function Navbar() {
   const navLinks: NavLinkItem[] = useMemo(
     () => [
       { name: "Home", href: "/", icon: House },
-      { name: "Services", href: "/services", icon: Car },
+      { name: "History", href: "/rides", icon: Car },
       { name: "Contact", href: "/contact", icon: MessagesSquare },
       { name: "Help", href: "/help", icon: LifeBuoy },
     ],

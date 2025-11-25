@@ -5,7 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
 
-// Fix Leaflet marker icons (Next.js)
+// Fix Leaflet icons
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl:
@@ -24,6 +24,10 @@ type Props = {
   }) => void;
   selectedRouteType: "eco" | "fast" | "scenic";
   animateCar?: boolean;
+
+  // ⭐ NEW: LIVE DRIVER POSITION
+  driverCoords?: { lat: number; lon: number } | null;
+
   darkMode?: boolean;
 };
 
@@ -33,163 +37,140 @@ export default function MapView({
   onRouteComputed,
   selectedRouteType,
   animateCar = false,
+  driverCoords = null,
   darkMode = false,
 }: Props) {
+  // Refs
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapInstance = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.LayerGroup | null>(null);
-  const routeLayerRef = useRef<L.GeoJSON | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const map = useRef<L.Map | null>(null);
+  const markersLayer = useRef<L.LayerGroup | null>(null);
+  const routeLayer = useRef<L.GeoJSON | null>(null);
+  const tileLayer = useRef<L.TileLayer | null>(null);
 
-  // car animation refs
-  const carMarkerRef = useRef<L.Marker | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const animationIndexRef = useRef<number>(0);
-  const pathRef = useRef<[number, number][] | null>(null);
+  const carMarker = useRef<L.Marker | null>(null);
+  const driverMarker = useRef<L.Marker | null>(null);
+
+  const rafID = useRef<number | null>(null);
+  const path = useRef<[number, number][] | null>(null);
+  const animIndex = useRef<number>(0);
 
   const LOCATIONIQ_KEY = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
 
-  // Initialize map once
+  /* ----------------------------- INIT MAP ------------------------------ */
   useEffect(() => {
-    if (!mapRef.current || mapInstance.current) return;
+    if (map.current || !mapRef.current) return;
 
-    const map = L.map(mapRef.current, {
-      zoomControl: false,
+    map.current = L.map(mapRef.current, {
       attributionControl: false,
-    }).setView([28.7041, 77.1025], 11);
+      zoomControl: false,
+    }).setView([28.7041, 77.1025], 12);
 
-    mapInstance.current = map;
-
-    // initial tile
+    // default tile
     const url = darkMode
       ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
       : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
-    tileLayerRef.current = L.tileLayer(url, { attribution: "&copy; OSM & CARTO" });
-    tileLayerRef.current.addTo(map);
+    tileLayer.current = L.tileLayer(url, {
+      attribution: "&copy; OpenStreetMap & CARTO",
+    }).addTo(map.current);
 
-    // markers layer
-    markersRef.current = L.layerGroup().addTo(map);
+    markersLayer.current = L.layerGroup().addTo(map.current);
 
     return () => {
-      // cleanup on unmount
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
-      }
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once
+  }, [darkMode]);
 
-  // Switch tiles when darkMode toggles
+  /* ----------------------------- THEME SWITCH --------------------------- */
   useEffect(() => {
-    if (!mapInstance.current) return;
+    if (!map.current) return;
 
     const url = darkMode
       ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
       : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
-    // remove old tile layer if present
-    if (tileLayerRef.current && mapInstance.current.hasLayer(tileLayerRef.current)) {
-      mapInstance.current.removeLayer(tileLayerRef.current);
+    if (tileLayer.current) {
+      map.current.removeLayer(tileLayer.current);
     }
 
-    tileLayerRef.current = L.tileLayer(url, { attribution: "&copy; OSM & CARTO" });
-    tileLayerRef.current.addTo(mapInstance.current);
+    tileLayer.current = L.tileLayer(url, {
+      attribution: "&copy; OpenStreetMap & CARTO",
+    });
+
+    tileLayer.current.addTo(map.current);
   }, [darkMode]);
 
-  // Helper: clear route and car animation
+  /* ----------------------- CLEAR ROUTE & CAR ----------------------------- */
   const clearRouteAndCar = () => {
-    try {
-      if (routeLayerRef.current && mapInstance.current) {
-        mapInstance.current.removeLayer(routeLayerRef.current);
-        routeLayerRef.current = null;
-      }
-      if (carMarkerRef.current && mapInstance.current) {
-        mapInstance.current.removeLayer(carMarkerRef.current);
-        carMarkerRef.current = null;
-      }
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      pathRef.current = null;
-      animationIndexRef.current = 0;
-    } catch (e) {
-      // ignore
+    if (routeLayer.current && map.current) {
+      map.current.removeLayer(routeLayer.current);
+      routeLayer.current = null;
     }
+    if (carMarker.current && map.current) {
+      map.current.removeLayer(carMarker.current);
+      carMarker.current = null;
+    }
+    if (rafID.current) cancelAnimationFrame(rafID.current);
+
+    path.current = null;
+    animIndex.current = 0;
   };
 
-  // Update markers and route whenever pickup/drop change
+  /* ---------------------- DRAW MARKERS + ROUTE --------------------------- */
   useEffect(() => {
-    if (!mapInstance.current || !markersRef.current) return;
+    if (!map.current || !markersLayer.current) return;
 
-    // clear old
-    markersRef.current.clearLayers();
+    markersLayer.current.clearLayers();
     clearRouteAndCar();
 
-    // pickup marker
+    // Pickup marker
     if (pickupCoords) {
-      const pickupIcon = L.divIcon({
-        className: "",
-        html:
-          '<div style="width:16px;height:16px;background:#16a34a;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.2)"></div>',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      });
-      L.marker([pickupCoords.lat, pickupCoords.lon], { icon: pickupIcon }).addTo(
-        markersRef.current
-      );
+      L.marker([pickupCoords.lat, pickupCoords.lon], {
+        icon: L.divIcon({
+          className: "",
+          html:
+            '<div style="width:16px;height:16px;background:#16a34a;border-radius:50%;border:2px solid white"></div>',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        }),
+      }).addTo(markersLayer.current);
 
-      if (!dropCoords) {
-        mapInstance.current.flyTo([pickupCoords.lat, pickupCoords.lon], 13, { duration: 1.0 });
-      }
+      if (!dropCoords) map.current.flyTo([pickupCoords.lat, pickupCoords.lon], 14);
     }
 
-    // drop marker
+    // Drop marker
     if (dropCoords) {
-      const dropIcon = L.divIcon({
-        className: "",
-        html:
-          '<div style="width:16px;height:16px;background:#dc2626;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.2)"></div>',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      });
-      L.marker([dropCoords.lat, dropCoords.lon], { icon: dropIcon }).addTo(markersRef.current);
-
-      if (!pickupCoords) {
-        mapInstance.current.flyTo([dropCoords.lat, dropCoords.lon], 13, { duration: 1.0 });
-      }
+      L.marker([dropCoords.lat, dropCoords.lon], {
+        icon: L.divIcon({
+          className: "",
+          html:
+            '<div style="width:16px;height:16px;background:#dc2626;border-radius:50%;border:2px solid white"></div>',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        }),
+      }).addTo(markersLayer.current);
     }
 
-    // fetch route if both exist
-    if (pickupCoords && dropCoords) {
-      (async () => {
-        await fetchRoute(pickupCoords, dropCoords);
-      })();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Fetch & draw route if both exist
+    if (pickupCoords && dropCoords) fetchRoute(pickupCoords, dropCoords);
   }, [pickupCoords, dropCoords, selectedRouteType]);
 
-  // Fetch route and draw
+  /* ---------------------------- FETCH ROUTE ------------------------------ */
   const fetchRoute = async (pickup: any, drop: any) => {
-    if (!mapInstance.current) return;
     try {
       const url = `https://us1.locationiq.com/v1/directions/driving/${pickup.lon},${pickup.lat};${drop.lon},${drop.lat}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`;
+
       const res = await axios.get(url);
+      const route = res.data.routes?.[0];
+      if (!route) return;
 
-      const route = res.data.routes && res.data.routes[0];
-      if (!route) throw new Error("No route found");
-
-      const geometry = route.geometry;
       let distanceKm = route.distance / 1000;
       let durationMin = route.duration / 60;
 
-      // tweak by route type
+      // Adjust based on selected type
       if (selectedRouteType === "eco") {
         distanceKm *= 1.02;
         durationMin *= 1.05;
@@ -198,143 +179,122 @@ export default function MapView({
         durationMin *= 1.25;
       }
 
-      // clear previous route & car
+      // Clear old
       clearRouteAndCar();
 
-      // draw route with glow (two layers, one soft glow)
-      routeLayerRef.current = L.geoJSON(geometry, {
-        style: () => ({
-          color: "#111111",
-          weight: 6,
-          opacity: 0.98,
-          lineCap: "round",
-        }),
-      }).addTo(mapInstance.current);
+      const geometry = route.geometry;
 
-      // optional glow: lower-weight, semi-transparent layer (add beneath)
-      L.geoJSON(geometry, {
-        style: () => ({
-          color: "#111111",
-          weight: 12,
-          opacity: 0.06,
-          className: "route-glow",
-        }),
-      }).addTo(mapInstance.current);
+      // Draw route
+      routeLayer.current = L.geoJSON(geometry, {
+        style: { color: "#111", weight: 6, opacity: 0.95 },
+      }).addTo(map.current!);
 
-      // fit bounds
-      const bounds = L.geoJSON(geometry).getBounds();
-      mapInstance.current.flyToBounds(bounds, { padding: [70, 70], duration: 1.0 });
+      // Fit view
+      map.current!.fitBounds(L.geoJSON(geometry).getBounds(), {
+        padding: [60, 60],
+      });
 
-      // provide route info to parent
+      // Send route data
       onRouteComputed({ distanceKm, durationMin, geometry });
 
-      // prepare path coords for car if needed (convert [lon,lat] -> [lat,lon])
-      const coords: any[] = geometry.coordinates || [];
-      pathRef.current = coords.map((c: [number, number]) => [c[1], c[0]]);
+      // Prepare animation path
+      path.current = geometry.coordinates.map((c: any) => [c[1], c[0]]);
 
-      // animate car if requested
-      if (animateCar && pathRef.current && pathRef.current.length > 0) {
-        startCarAnimation();
-      }
-    } catch (err) {
-      console.error("Routing error:", err);
+      if (animateCar) startCarAnimation();
+    } catch (e) {
+      console.error("Route error:", e);
     }
   };
 
-  // Car animation: smoothly step through points
+  /* ----------------------------- CAR ANIMATION --------------------------- */
   const startCarAnimation = () => {
-    if (!mapInstance.current || !pathRef.current || pathRef.current.length === 0) return;
+    if (!map.current || !path.current) return;
 
-    // create car icon
-    const carIcon = L.divIcon({
+    const icon = L.divIcon({
       className: "",
       html:
-        '<div style="width:28px;height:14px;background:#000;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.25);"></div>',
+        '<div style="width:28px;height:14px;background:black;border-radius:6px;box-shadow:0 0 10px rgba(0,0,0,0.3)"></div>',
       iconSize: [28, 14],
       iconAnchor: [14, 7],
     });
 
-    // remove old marker
-    if (carMarkerRef.current && mapInstance.current) {
-      mapInstance.current.removeLayer(carMarkerRef.current);
-      carMarkerRef.current = null;
-    }
-
-    const path = pathRef.current as [number, number][];
+    const coords = path.current;
     let i = 0;
-    animationIndexRef.current = 0;
 
-    carMarkerRef.current = L.marker(path[0], { icon: carIcon }).addTo(mapInstance.current);
+    carMarker.current = L.marker(coords[0], { icon }).addTo(map.current);
 
     const step = () => {
-      // move a few steps per frame for visible motion (tune speed)
-      animationIndexRef.current += 1;
-      i = animationIndexRef.current;
+      if (i >= coords.length - 1) return;
 
-      if (!path || i >= path.length) {
-        // stop
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
-        }
-        return;
-      }
+      i++;
+      animIndex.current = i;
 
-      const next = path[i];
-      carMarkerRef.current!.setLatLng(next);
-
-      // optionally pan map to keep car in view:
-      // mapInstance.current.panTo(next, { animate: false });
-
-      rafRef.current = requestAnimationFrame(step);
+      carMarker.current!.setLatLng(coords[i]);
+      rafID.current = requestAnimationFrame(step);
     };
 
-    // small delay before starting to create natural movement
-    rafRef.current = requestAnimationFrame(step);
+    rafID.current = requestAnimationFrame(step);
   };
 
-  // controls handlers
-  const zoomIn = () => {
-    if (!mapInstance.current) return;
-    mapInstance.current.zoomIn();
-  };
-  const zoomOut = () => {
-    if (!mapInstance.current) return;
-    mapInstance.current.zoomOut();
-  };
+  /* -------------------------- LIVE DRIVER TRACKING ----------------------- */
+  useEffect(() => {
+    if (!map.current) return;
+    if (!driverCoords) return;
+
+    const driverIcon = L.divIcon({
+      className: "",
+      html:
+        '<div style="width:24px;height:24px;background:#2563eb;border:2px solid white;border-radius:50%;box-shadow:0 0 8px rgba(0,0,0,0.3)"></div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
+
+    // If first time
+    if (!driverMarker.current) {
+      driverMarker.current = L.marker(
+        [driverCoords.lat, driverCoords.lon],
+        { icon: driverIcon }
+      ).addTo(map.current);
+
+      return;
+    }
+
+    // Update existing marker
+    driverMarker.current.setLatLng([driverCoords.lat, driverCoords.lon]);
+  }, [driverCoords]);
+
+  /* ------------------------------- CONTROLS ------------------------------- */
+  const zoomIn = () => map.current?.zoomIn();
+  const zoomOut = () => map.current?.zoomOut();
   const fitRoute = () => {
-    if (!mapInstance.current || !routeLayerRef.current) return;
-    const bounds = routeLayerRef.current.getBounds();
-    mapInstance.current.fitBounds(bounds, { padding: [70, 70], duration: 0.9 });
+    if (routeLayer.current)
+      map.current?.fitBounds(routeLayer.current.getBounds(), {
+        padding: [60, 60],
+      });
   };
 
+  /* ------------------------------ UI OUTPUT ------------------------------ */
   return (
     <div className="w-full h-full relative">
-      {/* Map container */}
       <div ref={mapRef} className="w-full h-full" />
 
-      {/* Floating controls */}
+      {/* Controls */}
       <div className="absolute top-4 right-4 flex flex-col gap-3 z-40">
         <button
           onClick={zoomIn}
-          className="w-10 h-10 rounded-lg bg-white/90 shadow-md flex items-center justify-center border border-neutral-200 hover:scale-105 transition"
-          aria-label="Zoom in"
+          className="w-10 h-10 bg-white/90 rounded-lg border shadow-sm"
         >
           +
         </button>
-
         <button
           onClick={zoomOut}
-          className="w-10 h-10 rounded-lg bg-white/90 shadow-md flex items-center justify-center border border-neutral-200 hover:scale-105 transition"
-          aria-label="Zoom out"
+          className="w-10 h-10 bg-white/90 rounded-lg border shadow-sm"
         >
           −
         </button>
-
         <button
           onClick={fitRoute}
-          className="w-10 h-10 rounded-lg bg-white/90 shadow-md flex items-center justify-center border border-neutral-200 hover:scale-105 transition"
-          title="Fit route"
+          className="w-10 h-10 bg-white/90 rounded-lg border shadow-sm"
         >
           ⤢
         </button>

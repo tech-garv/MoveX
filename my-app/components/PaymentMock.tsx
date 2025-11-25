@@ -5,7 +5,7 @@ import React, { useState } from "react";
 type Props = {
   fare: number;
   vehicle: any;
-  onPaid: () => void;
+  onPaid: (data: { fare: number; vehicle: any }) => void;
   onCancel: () => void;
 };
 
@@ -14,12 +14,9 @@ export default function PaymentMock({ fare, vehicle, onPaid, onCancel }: Props) 
 
   const handlePay = () => {
     setLoading(true);
-
-    // Simulated processing delay
     setTimeout(() => {
       setLoading(false);
-      alert("Payment Successful ✔");
-      onPaid(); // Start car animation or next step
+      onPaid({ fare, vehicle }); 
     }, 1200);
   };
 
@@ -27,7 +24,6 @@ export default function PaymentMock({ fare, vehicle, onPaid, onCancel }: Props) 
     <div className="mt-6 bg-white p-5 rounded-2xl shadow-lg border">
       <h3 className="text-lg font-semibold mb-4">Payment</h3>
 
-      {/* Vehicle Summary */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <div className="text-sm text-neutral-500">Vehicle</div>
@@ -40,7 +36,6 @@ export default function PaymentMock({ fare, vehicle, onPaid, onCancel }: Props) 
         </div>
       </div>
 
-      {/* Buttons */}
       <div className="flex gap-3">
         <button
           onClick={handlePay}
