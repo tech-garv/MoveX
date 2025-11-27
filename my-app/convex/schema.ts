@@ -14,7 +14,6 @@ export default defineSchema({
     status: v.string(),
     createdAt: v.number(),
 
-    // ⭐ Driver fields (flat format — NO object)
     driverId: v.optional(v.id("drivers")),
     driverName: v.optional(v.string()),
     driverRating: v.optional(v.number()),
@@ -37,4 +36,12 @@ export default defineSchema({
     status: v.string(),
     updatedAt: v.number(),
   }).index("by_ride", ["rideId"]),
+
+  // ⭐ ADD THIS NEW CONTACT TABLE
+  contactMessages: defineTable({
+    name: v.string(),
+    email: v.string(),
+    message: v.string(),
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
 });

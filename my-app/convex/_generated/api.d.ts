@@ -9,6 +9,7 @@
  */
 
 import type * as autoMove from "../autoMove.js";
+import type * as contact from "../contact.js";
 import type * as drivers from "../drivers.js";
 import type * as live from "../live.js";
 import type * as rides from "../rides.js";
@@ -22,6 +23,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   autoMove: typeof autoMove;
+  contact: typeof contact;
   drivers: typeof drivers;
   live: typeof live;
   rides: typeof rides;
