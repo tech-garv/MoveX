@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useUser } from "@clerk/nextjs";
 import { useMutation } from "convex/react";
@@ -21,18 +21,26 @@ const MapView = dynamic(() => import("@/components/map/MapView"), {
 });
 
 export type Coords = { lat: number; lon: number };
-export type RouteInfo = { distanceKm: number; durationMin: number; geometry?: any };
+export type RouteInfo = {
+  distanceKm: number;
+  durationMin: number;
+  geometry?: any;
+};
 
 export default function Page() {
-  // ✔ Correct: hooks must be at top
+  // AUTH + MUTATIONS
   const { user, isSignedIn } = useUser();
 
   const createRide = useMutation(api.rides.createRide);
   const assignDriver = useMutation(api.rides.assignDriver);
+  const updateDriverLocation = useMutation(api.drivers.updateDriverLocation);
+  const updateRideStatus = useMutation(api.rides.updateRideStatus);
 
+  // STATE
   const [pickupCoords, setPickupCoords] = useState<Coords | null>(null);
   const [dropCoords, setDropCoords] = useState<Coords | null>(null);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
+
   const [selectedRouteType, setSelectedRouteType] =
     useState<"eco" | "fast" | "scenic">("fast");
 
@@ -42,9 +50,64 @@ export default function Page() {
   const [showVehicleSelector, setShowVehicleSelector] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
 
-  // --------------------------------------------------
-  // PAYMENT SUCCESS → SAVE RIDE + ASSIGN DRIVER
-  // --------------------------------------------------
+  // SIMULATION REF — so we can stop/replace animation
+  const simRef = useRef<{ timer?: number } | null>(null);
+
+  // -------------------------------------------------------
+  // 🚗 STEP 3C — Auto-move driver along geometry path
+  // -------------------------------------------------------
+  const simulateDriverMovement = async (
+    driverId: any,
+    coordinates: any[]
+  ) => {
+    if (!coordinates || coordinates.length === 0) return;
+
+    // Convert [lon,lat] → [lat,lon]
+    const path = coordinates.map((c) => [c[1], c[0]]);
+
+    // Stop any old simulation
+    if (simRef.current?.timer) {
+      clearInterval(simRef.current.timer);
+      simRef.current = null;
+    }
+
+    let index = 0;
+    simRef.current = {};
+
+    // Start interval movement
+    simRef.current.timer = window.setInterval(async () => {
+      if (index >= path.length) {
+        clearInterval(simRef.current!.timer);
+        simRef.current = null;
+
+        // Mark driver free after trip done
+        await updateDriverLocation({
+          driverId,
+          lat: path[path.length - 1][0],
+          lon: path[path.length - 1][1],
+          available: true,
+        });
+
+        await updateRideStatus({
+          rideId: currentRideIdRef.current!,
+          status: "completed",
+        });
+
+        return;
+      }
+
+      const [lat, lon] = path[index];
+      await updateDriverLocation({ driverId, lat, lon });
+      index++;
+    }, 1200);
+  };
+
+  // Keep rideId safe for simulation finish
+  const currentRideIdRef = useRef<any>(null);
+
+  // -------------------------------------------------------
+  // PAYMENT SUCCESS HANDLER
+  // -------------------------------------------------------
   const handleConfirmPayment = async ({
     fare,
     vehicle,
@@ -57,7 +120,7 @@ export default function Page() {
       return alert("Missing ride data.");
 
     try {
-      // 1️⃣ SAVE ride in database
+      // 1️⃣ Create Ride
       const rideId = await createRide({
         userId: user!.id,
         pickup: pickupCoords,
@@ -68,25 +131,48 @@ export default function Page() {
         vehicleType: vehicle.title,
       });
 
-      // 2️⃣ Assign nearest driver
-      const driver = await assignDriver({
-        rideId,
-        pickup: pickupCoords,
-      });
+      currentRideIdRef.current = rideId;
 
-      if (driver) {
-        alert(`🚗 Ride booked! Driver ${driver.name} is on the way.`);
-      } else {
-        alert("✔ Ride booked but no drivers currently available.");
+      // 2️⃣ Assign Driver
+      const driver = await assignDriver({ rideId, pickup: pickupCoords });
+
+      if (!driver) {
+        alert("✔ Ride saved but no drivers available.");
+        return setShowPayment(false);
+      }
+
+      // 3️⃣ Update Ride Status
+      await updateRideStatus({ rideId, status: "driver_assigned" });
+
+      alert(`🚗 Driver ${driver.name} assigned!`);
+
+      // 4️⃣ Start Auto Movement
+      const coords = routeInfo.geometry?.coordinates || [];
+      if (coords.length > 0) {
+        // small status changes (optional)
+        setTimeout(
+          () => updateRideStatus({ rideId, status: "arriving" }),
+          2000
+        );
+        setTimeout(
+          () => updateRideStatus({ rideId, status: "on_trip" }),
+          4000
+        );
+
+        // auto-move driver along geometry
+        await simulateDriverMovement(driver._id, coords);
       }
 
       setShowPayment(false);
     } catch (err) {
       console.error(err);
-      alert("❌ Error saving ride");
+      alert("❌ Error processing ride");
     }
   };
 
+  // -------------------------------------------------------
+  // UI
+  // -------------------------------------------------------
   return (
     <div className="min-h-screen w-full flex flex-col md:flex-row bg-neutral-100">
       {/* LEFT SIDE */}
@@ -117,17 +203,15 @@ export default function Page() {
             )}
 
             {showVehicleSelector && routeInfo && (
-              <div className="mt-6">
-                <VehicleSelector
-                  routeInfo={routeInfo}
-                  onSelect={(vehicle) => {
-                    setSelectedVehicle(vehicle);
-                    setShowPayment(true);
-                    setShowVehicleSelector(false);
-                  }}
-                  onClose={() => setShowVehicleSelector(false)}
-                />
-              </div>
+              <VehicleSelector
+                routeInfo={routeInfo}
+                onSelect={(vehicle) => {
+                  setSelectedVehicle(vehicle);
+                  setShowPayment(true);
+                  setShowVehicleSelector(false);
+                }}
+                onClose={() => setShowVehicleSelector(false)}
+              />
             )}
 
             {showPayment &&
@@ -136,14 +220,12 @@ export default function Page() {
               routeInfo &&
               pickupCoords &&
               dropCoords && (
-                <div className="mt-6">
-                  <PaymentMock
-                    fare={fare}
-                    vehicle={selectedVehicle}
-                    onPaid={handleConfirmPayment}
-                    onCancel={() => setShowPayment(false)}
-                  />
-                </div>
+                <PaymentMock
+                  fare={fare}
+                  vehicle={selectedVehicle}
+                  onPaid={handleConfirmPayment}
+                  onCancel={() => setShowPayment(false)}
+                />
               )}
           </div>
         </div>

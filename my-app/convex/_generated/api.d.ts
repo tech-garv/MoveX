@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as autoMove from "../autoMove.js";
 import type * as drivers from "../drivers.js";
 import type * as live from "../live.js";
 import type * as rides from "../rides.js";
@@ -20,6 +21,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  autoMove: typeof autoMove;
   drivers: typeof drivers;
   live: typeof live;
   rides: typeof rides;

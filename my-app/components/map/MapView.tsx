@@ -1,15 +1,17 @@
+// components/map/MapView.tsx
 "use client";
 
 import React, { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import axios from "axios";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
-// Fix Leaflet icons
+// Fix Leaflet marker icons for Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
@@ -17,17 +19,9 @@ L.Icon.Default.mergeOptions({
 type Props = {
   pickupCoords: { lat: number; lon: number } | null;
   dropCoords: { lat: number; lon: number } | null;
-  onRouteComputed: (info: {
-    distanceKm: number;
-    durationMin: number;
-    geometry: any;
-  }) => void;
+  onRouteComputed: (info: { distanceKm: number; durationMin: number; geometry: any }) => void;
   selectedRouteType: "eco" | "fast" | "scenic";
   animateCar?: boolean;
-
-  // ⭐ NEW: LIVE DRIVER POSITION
-  driverCoords?: { lat: number; lon: number } | null;
-
   darkMode?: boolean;
 };
 
@@ -37,267 +31,197 @@ export default function MapView({
   onRouteComputed,
   selectedRouteType,
   animateCar = false,
-  driverCoords = null,
   darkMode = false,
 }: Props) {
-  // Refs
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const map = useRef<L.Map | null>(null);
-  const markersLayer = useRef<L.LayerGroup | null>(null);
-  const routeLayer = useRef<L.GeoJSON | null>(null);
-  const tileLayer = useRef<L.TileLayer | null>(null);
+  const mapInstance = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.GeoJSON | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
 
-  const carMarker = useRef<L.Marker | null>(null);
-  const driverMarker = useRef<L.Marker | null>(null);
+  // drivers from Convex (live)
+  const drivers = useQuery(api.drivers.getAllDrivers);
 
-  const rafID = useRef<number | null>(null);
-  const path = useRef<[number, number][] | null>(null);
-  const animIndex = useRef<number>(0);
+  // driver markers keyed by driverId
+  const driverMarkers = useRef<Record<string, L.Marker>>({});
 
   const LOCATIONIQ_KEY = process.env.NEXT_PUBLIC_LOCATIONIQ_KEY;
 
-  /* ----------------------------- INIT MAP ------------------------------ */
   useEffect(() => {
-    if (map.current || !mapRef.current) return;
+    if (!mapRef.current || mapInstance.current) return;
 
-    map.current = L.map(mapRef.current, {
-      attributionControl: false,
+    const map = L.map(mapRef.current, {
       zoomControl: false,
-    }).setView([28.7041, 77.1025], 12);
+      attributionControl: false,
+    }).setView([28.7041, 77.1025], 11);
 
-    // default tile
+    mapInstance.current = map;
+
     const url = darkMode
       ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
       : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
-    tileLayer.current = L.tileLayer(url, {
-      attribution: "&copy; OpenStreetMap & CARTO",
-    }).addTo(map.current);
+    tileLayerRef.current = L.tileLayer(url, { attribution: "&copy; OSM & CARTO" });
+    tileLayerRef.current.addTo(map);
 
-    markersLayer.current = L.layerGroup().addTo(map.current);
+    markersRef.current = L.layerGroup().addTo(map);
 
     return () => {
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
       }
     };
-  }, [darkMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  /* ----------------------------- THEME SWITCH --------------------------- */
+  // update base tiles on darkMode change
   useEffect(() => {
-    if (!map.current) return;
-
+    if (!mapInstance.current) return;
     const url = darkMode
       ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
       : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-
-    if (tileLayer.current) {
-      map.current.removeLayer(tileLayer.current);
+    if (tileLayerRef.current && mapInstance.current.hasLayer(tileLayerRef.current)) {
+      mapInstance.current.removeLayer(tileLayerRef.current);
     }
-
-    tileLayer.current = L.tileLayer(url, {
-      attribution: "&copy; OpenStreetMap & CARTO",
-    });
-
-    tileLayer.current.addTo(map.current);
+    tileLayerRef.current = L.tileLayer(url, { attribution: "&copy; OSM & CARTO" });
+    tileLayerRef.current.addTo(mapInstance.current);
   }, [darkMode]);
 
-  /* ----------------------- CLEAR ROUTE & CAR ----------------------------- */
-  const clearRouteAndCar = () => {
-    if (routeLayer.current && map.current) {
-      map.current.removeLayer(routeLayer.current);
-      routeLayer.current = null;
-    }
-    if (carMarker.current && map.current) {
-      map.current.removeLayer(carMarker.current);
-      carMarker.current = null;
-    }
-    if (rafID.current) cancelAnimationFrame(rafID.current);
-
-    path.current = null;
-    animIndex.current = 0;
-  };
-
-  /* ---------------------- DRAW MARKERS + ROUTE --------------------------- */
+  // draw pickup/drop markers & route
   useEffect(() => {
-    if (!map.current || !markersLayer.current) return;
+    if (!mapInstance.current || !markersRef.current) return;
 
-    markersLayer.current.clearLayers();
-    clearRouteAndCar();
+    // clear route/markers (except drivers)
+    markersRef.current.clearLayers();
+    if (routeLayerRef.current && mapInstance.current.hasLayer(routeLayerRef.current)) {
+      mapInstance.current.removeLayer(routeLayerRef.current);
+      routeLayerRef.current = null;
+    }
 
-    // Pickup marker
+    // pickup
     if (pickupCoords) {
-      L.marker([pickupCoords.lat, pickupCoords.lon], {
-        icon: L.divIcon({
-          className: "",
-          html:
-            '<div style="width:16px;height:16px;background:#16a34a;border-radius:50%;border:2px solid white"></div>',
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
-        }),
-      }).addTo(markersLayer.current);
-
-      if (!dropCoords) map.current.flyTo([pickupCoords.lat, pickupCoords.lon], 14);
+      const pickupIcon = L.divIcon({
+        html: `<div style="width:16px;height:16px;background:#16a34a;border-radius:50%;border:2px solid white"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      });
+      L.marker([pickupCoords.lat, pickupCoords.lon], { icon: pickupIcon }).addTo(markersRef.current);
+      if (!dropCoords) mapInstance.current.flyTo([pickupCoords.lat, pickupCoords.lon], 13, { duration: 1.0 });
     }
 
-    // Drop marker
+    // drop
     if (dropCoords) {
-      L.marker([dropCoords.lat, dropCoords.lon], {
-        icon: L.divIcon({
-          className: "",
-          html:
-            '<div style="width:16px;height:16px;background:#dc2626;border-radius:50%;border:2px solid white"></div>',
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
-        }),
-      }).addTo(markersLayer.current);
-    }
-
-    // Fetch & draw route if both exist
-    if (pickupCoords && dropCoords) fetchRoute(pickupCoords, dropCoords);
-  }, [pickupCoords, dropCoords, selectedRouteType]);
-
-  /* ---------------------------- FETCH ROUTE ------------------------------ */
-  const fetchRoute = async (pickup: any, drop: any) => {
-    try {
-      const url = `https://us1.locationiq.com/v1/directions/driving/${pickup.lon},${pickup.lat};${drop.lon},${drop.lat}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`;
-
-      const res = await axios.get(url);
-      const route = res.data.routes?.[0];
-      if (!route) return;
-
-      let distanceKm = route.distance / 1000;
-      let durationMin = route.duration / 60;
-
-      // Adjust based on selected type
-      if (selectedRouteType === "eco") {
-        distanceKm *= 1.02;
-        durationMin *= 1.05;
-      } else if (selectedRouteType === "scenic") {
-        distanceKm *= 1.15;
-        durationMin *= 1.25;
-      }
-
-      // Clear old
-      clearRouteAndCar();
-
-      const geometry = route.geometry;
-
-      // Draw route
-      routeLayer.current = L.geoJSON(geometry, {
-        style: { color: "#111", weight: 6, opacity: 0.95 },
-      }).addTo(map.current!);
-
-      // Fit view
-      map.current!.fitBounds(L.geoJSON(geometry).getBounds(), {
-        padding: [60, 60],
+      const dropIcon = L.divIcon({
+        html: `<div style="width:16px;height:16px;background:#dc2626;border-radius:50%;border:2px solid white"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
       });
-
-      // Send route data
-      onRouteComputed({ distanceKm, durationMin, geometry });
-
-      // Prepare animation path
-      path.current = geometry.coordinates.map((c: any) => [c[1], c[0]]);
-
-      if (animateCar) startCarAnimation();
-    } catch (e) {
-      console.error("Route error:", e);
+      L.marker([dropCoords.lat, dropCoords.lon], { icon: dropIcon }).addTo(markersRef.current);
+      if (!pickupCoords) mapInstance.current.flyTo([dropCoords.lat, dropCoords.lon], 13, { duration: 1.0 });
     }
-  };
 
-  /* ----------------------------- CAR ANIMATION --------------------------- */
-  const startCarAnimation = () => {
-    if (!map.current || !path.current) return;
+    // route fetch & draw
+    if (pickupCoords && dropCoords) {
+      (async () => {
+        try {
+          const url = `https://us1.locationiq.com/v1/directions/driving/${pickupCoords.lon},${pickupCoords.lat};${dropCoords.lon},${dropCoords.lat}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`;
+          const res = await axios.get(url);
+          const route = res.data.routes?.[0];
+          if (!route) throw new Error("No route");
 
-    const icon = L.divIcon({
-      className: "",
-      html:
-        '<div style="width:28px;height:14px;background:black;border-radius:6px;box-shadow:0 0 10px rgba(0,0,0,0.3)"></div>',
-      iconSize: [28, 14],
-      iconAnchor: [14, 7],
-    });
+          const geometry = route.geometry;
+          let distanceKm = route.distance / 1000;
+          let durationMin = route.duration / 60;
 
-    const coords = path.current;
-    let i = 0;
+          if (selectedRouteType === "eco") {
+            distanceKm *= 1.02;
+            durationMin *= 1.05;
+          } else if (selectedRouteType === "scenic") {
+            distanceKm *= 1.15;
+            durationMin *= 1.25;
+          }
 
-    carMarker.current = L.marker(coords[0], { icon }).addTo(map.current);
+          routeLayerRef.current = L.geoJSON(geometry, {
+            style: { color: "#111", weight: 6, opacity: 0.95, lineCap: "round" },
+          }).addTo(mapInstance.current!);
 
-    const step = () => {
-      if (i >= coords.length - 1) return;
+          const bounds = L.geoJSON(geometry).getBounds();
+          mapInstance.current!.flyToBounds(bounds, { padding: [70, 70], duration: 1.0 });
 
-      i++;
-      animIndex.current = i;
+          onRouteComputed({ distanceKm, durationMin, geometry });
 
-      carMarker.current!.setLatLng(coords[i]);
-      rafID.current = requestAnimationFrame(step);
-    };
+        } catch (err) {
+          console.error("Route error", err);
+        }
+      })();
+    }
+  }, [pickupCoords, dropCoords, selectedRouteType, onRouteComputed, LOCATIONIQ_KEY]);
 
-    rafID.current = requestAnimationFrame(step);
-  };
-
-  /* -------------------------- LIVE DRIVER TRACKING ----------------------- */
+  // Driver markers: update when `drivers` changes (Convex live updates)
   useEffect(() => {
-    if (!map.current) return;
-    if (!driverCoords) return;
+    if (!mapInstance.current || !drivers) return;
 
-    const driverIcon = L.divIcon({
-      className: "",
-      html:
-        '<div style="width:24px;height:24px;background:#2563eb;border:2px solid white;border-radius:50%;box-shadow:0 0 8px rgba(0,0,0,0.3)"></div>',
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
-    });
-
-    // If first time
-    if (!driverMarker.current) {
-      driverMarker.current = L.marker(
-        [driverCoords.lat, driverCoords.lon],
-        { icon: driverIcon }
-      ).addTo(map.current);
-
-      return;
+    // Remove markers for drivers that no longer exist
+    const currentIds = new Set(drivers.map((d: any) => String(d._id)));
+    for (const id of Object.keys(driverMarkers.current)) {
+      if (!currentIds.has(id)) {
+        const m = driverMarkers.current[id];
+        mapInstance.current.removeLayer(m);
+        delete driverMarkers.current[id];
+      }
     }
 
-    // Update existing marker
-    driverMarker.current.setLatLng([driverCoords.lat, driverCoords.lon]);
-  }, [driverCoords]);
+    drivers.forEach((d: any) => {
+      const id = String(d._id);
+      const lat = d.lat;
+      const lon = d.lon;
+      if (lat == null || lon == null) return;
 
-  /* ------------------------------- CONTROLS ------------------------------- */
-  const zoomIn = () => map.current?.zoomIn();
-  const zoomOut = () => map.current?.zoomOut();
-  const fitRoute = () => {
-    if (routeLayer.current)
-      map.current?.fitBounds(routeLayer.current.getBounds(), {
-        padding: [60, 60],
+      const iconHtml = `
+        <div style="
+          width:28px;height:14px;border-radius:6px;
+          background:${d.available ? "#000" : "#1f6feb"};
+          box-shadow:0 6px 14px rgba(0,0,0,0.18);
+          display:flex;align-items:center;justify-content:center;
+          color:white;font-size:10px;padding:2px 6px;
+        ">
+          🚗
+        </div>
+      `;
+
+      const icon = L.divIcon({
+        html: iconHtml,
+        iconSize: [28, 14],
+        iconAnchor: [14, 7],
       });
+
+      if (driverMarkers.current[id]) {
+        // smooth update
+        driverMarkers.current[id].setLatLng([lat, lon]);
+      } else {
+        const marker = L.marker([lat, lon], { icon }).addTo(mapInstance.current!);
+        driverMarkers.current[id] = marker;
+      }
+    });
+  }, [drivers]);
+
+  // zoom controls (same as before)
+  const zoomIn = () => mapInstance.current?.zoomIn();
+  const zoomOut = () => mapInstance.current?.zoomOut();
+  const fitRoute = () => {
+    if (routeLayerRef.current && mapInstance.current) {
+      mapInstance.current.fitBounds(routeLayerRef.current.getBounds(), { padding: [70, 70], duration: 0.9 });
+    }
   };
 
-  /* ------------------------------ UI OUTPUT ------------------------------ */
   return (
     <div className="w-full h-full relative">
       <div ref={mapRef} className="w-full h-full" />
-
-      {/* Controls */}
       <div className="absolute top-4 right-4 flex flex-col gap-3 z-40">
-        <button
-          onClick={zoomIn}
-          className="w-10 h-10 bg-white/90 rounded-lg border shadow-sm"
-        >
-          +
-        </button>
-        <button
-          onClick={zoomOut}
-          className="w-10 h-10 bg-white/90 rounded-lg border shadow-sm"
-        >
-          −
-        </button>
-        <button
-          onClick={fitRoute}
-          className="w-10 h-10 bg-white/90 rounded-lg border shadow-sm"
-        >
-          ⤢
-        </button>
+        <button onClick={zoomIn} className="w-10 h-10 rounded-lg bg-white/90 shadow-md border">+</button>
+        <button onClick={zoomOut} className="w-10 h-10 rounded-lg bg-white/90 shadow-md border">−</button>
+        <button onClick={fitRoute} className="w-10 h-10 rounded-lg bg-white/90 shadow-md border">⤢</button>
       </div>
     </div>
   );

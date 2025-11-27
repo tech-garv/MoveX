@@ -1,9 +1,8 @@
+// convex/drivers.ts
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-// -----------------------------------------
-// 1. ADD DRIVER (fake drivers for testing)
-// -----------------------------------------
+// 1️⃣ Add a driver (seeding)
 export const addDriver = mutation({
   args: {
     name: v.string(),
@@ -20,30 +19,28 @@ export const addDriver = mutation({
   },
 });
 
-// -----------------------------------------
-// 2. GET AVAILABLE DRIVERS
-// -----------------------------------------
-export const getAvailableDrivers = query({
+// 2️⃣ Get ALL drivers (available + assigned)
+export const getAllDrivers = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
-      .query("drivers")
-      .withIndex("by_available", q => q.eq("available", true))
-      .collect();
+    return await ctx.db.query("drivers").collect();
   },
 });
 
-// -----------------------------------------
-// 3. UPDATE DRIVER LOCATION (NEW)
-// -----------------------------------------
+// 3️⃣ Update driver location (used for real-time movement)
 export const updateDriverLocation = mutation({
   args: {
     driverId: v.id("drivers"),
     lat: v.number(),
     lon: v.number(),
+    available: v.optional(v.boolean()),
   },
-  handler: async (ctx, { driverId, lat, lon }) => {
-    await ctx.db.patch(driverId, { lat, lon });
+  handler: async (ctx, { driverId, lat, lon, available }) => {
+    await ctx.db.patch(driverId, {
+      lat,
+      lon,
+      ...(available !== undefined ? { available } : {}),
+    });
     return true;
   },
 });

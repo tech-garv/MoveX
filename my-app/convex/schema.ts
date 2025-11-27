@@ -1,3 +1,4 @@
+// convex/schema.ts
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -13,12 +14,11 @@ export default defineSchema({
     status: v.string(),
     createdAt: v.number(),
 
-    // ⭐ NEW FIELD
-     // NEW driver fields
-  driverId: v.optional(v.id("drivers")),
-  driverName: v.optional(v.string()),
-  driverRating: v.optional(v.number()),
-  driverVehicle: v.optional(v.string()), 
+    // ⭐ Driver fields (flat format — NO object)
+    driverId: v.optional(v.id("drivers")),
+    driverName: v.optional(v.string()),
+    driverRating: v.optional(v.number()),
+    driverVehicle: v.optional(v.string()),
   }).index("by_user", ["userId"]),
 
   drivers: defineTable({
